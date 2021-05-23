@@ -18,8 +18,13 @@ func main() {
 	defer c.Close()
 	// This worker hosts both Worker and Activity functions
 	w := worker.New(c, app.WorkflowEngineTaskQueue, worker.Options{})
-	w.RegisterWorkflow(app.MegaWorkflow)
-	w.RegisterActivity(app.CallHttp)
+
+	w.RegisterWorkflow(app.SimpleDSLWorkflow)
+	w.RegisterActivity(&app.SampleActivities{})
+
+	// w.RegisterWorkflow(app.MegaWorkflow)
+	// w.RegisterActivity(app.CallHttp)
+	// w.RegisterActivity(app.Sleep)
 
 	// Start listening to the Task Queue
 	// err = w.Run(worker.InterruptCh())

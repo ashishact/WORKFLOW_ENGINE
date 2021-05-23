@@ -1,0 +1,40 @@
+{
+    "variables": {
+        "arg1": "value1",
+        "arg2": "value2"
+    },
+    "root": {
+        "sequence": {
+            "elements": [
+                {
+                    "activity": {
+                        "name": "SampleActivity1",
+                        "arguments": [
+                            "arg1"
+                        ],
+                        "result": "result1"
+                    }
+                },
+                {
+                    "activity": {
+                        "name": "CallHttp",
+                        "arguments": [
+                            "http://worldclockapi.com/api/json/est/now"
+                        ],
+                        "result": "result2"
+                    }
+                },
+                {
+                    "activity": {
+                        "name": "SampleActivity1",
+                        "arguments": [
+                            "arg2",
+                            "result2"
+                        ],
+                        "result": "result3"
+                    }
+                }
+            ]
+        }
+    }
+}
