@@ -20,14 +20,8 @@ func main() {
 	w := worker.New(c, app.WorkflowEngineTaskQueue, worker.Options{})
 
 	w.RegisterWorkflow(app.SimpleDSLWorkflow)
-	w.RegisterActivity(&app.SampleActivities{})
+	w.RegisterActivity(&app.ActivityType{})
 
-	// w.RegisterWorkflow(app.MegaWorkflow)
-	// w.RegisterActivity(app.CallHttp)
-	// w.RegisterActivity(app.Sleep)
-
-	// Start listening to the Task Queue
-	// err = w.Run(worker.InterruptCh())
 	err = w.Run(nil) // Don't stop on error
 	if err != nil {
 		log.Fatalln("unable to start Worker", err)

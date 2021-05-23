@@ -8,7 +8,7 @@
             "elements": [
                 {
                     "activity": {
-                        "name": "SampleActivity1",
+                        "name": "NopActivity",
                         "arguments": [
                             "arg1"
                         ],
@@ -26,7 +26,7 @@
                 },
                 {
                     "activity": {
-                        "name": "SampleActivity1",
+                        "name": "NopActivity",
                         "arguments": [
                             "arg2",
                             "result2"

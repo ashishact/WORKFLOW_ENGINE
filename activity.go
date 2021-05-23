@@ -7,34 +7,34 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
+	"time"
 
 	// "workflow_engine/app"
 
 	"go.temporal.io/sdk/activity"
 )
 
-type SampleActivities struct {
+type ActivityType struct {
 }
 
-func (a *SampleActivities) SampleActivity1(ctx context.Context, input []string) (string, error) {
+func (a *ActivityType) NopActivity(ctx context.Context, input []string) (string, error) {
 	name := activity.GetInfo(ctx).ActivityType.Name
 	fmt.Printf("Run %s with input %v \n", name, input)
 	return "Result_" + name, nil
 }
 
-func (a *SampleActivities) CallHttp(ctx context.Context, input []string, arguments []string) (string, error) {
+func (a *ActivityType) CallHttp(ctx context.Context, input []string, arguments []string) (string, error) {
 	name := activity.GetInfo(ctx).ActivityType.Name
 	fmt.Printf("Run %s with input %v \r\n", name, input)
 
 	if len(arguments) == 0 {
-		return "", errors.New("Path was not provided")
+		return "", errors.New("URL was not provided for CallHttp")
 	}
-	for _, v := range arguments {
-		log.Println(v)
-	}
-	path := arguments[0]
 
-	res, err := http.Get(path)
+	url := arguments[0]
+
+	res, err := http.Get(url)
 	if err != nil {
 		log.Println(err)
 		return "", err
@@ -50,30 +50,18 @@ func (a *SampleActivities) CallHttp(ctx context.Context, input []string, argumen
 	return result, nil
 }
 
-/*
-func CallHttp(path string) (string, error) {
-	log.Println("Path: %s!", path)
-
-	res, err := http.Get(path)
-	if err != nil {
-		log.Println(err)
-		return "", err
+func (a *ActivityType) Sleep(ctx context.Context, input []string) error {
+	if len(input) == 0 {
+		return nil
 	}
-	body, err := ioutil.ReadAll(res.Body)
-	res.Body.Close()
+
+	duration, err := strconv.Atoi(input[0])
 	if err != nil {
-		log.Println(err)
-		return "", err
+		return errors.New("Sleep: Not a valid duration. Must be a number (seconds)")
 	}
-	result := string(body)
 
-	return result, nil
-}
-
-func Sleep(duration time.Duration) error {
 	log.Println("Sleeping Start")
-	time.Sleep(duration * time.Second)
+	time.Sleep(time.Duration(duration) * time.Second)
 	log.Println("Sleeping Done")
 	return nil
 }
-*/

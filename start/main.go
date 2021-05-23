@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"encoding/json"
@@ -29,24 +28,13 @@ func main() {
 	defer c.Close()
 
 	// WEB SERVER
-
 	PORT := 3001
 	r := gin.Default()
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "pong",
-		})
-	})
 
-	r.GET("test", TestWorkflow)
+	r.GET("/test", TestWorkflow)
 	addr := ":" + strconv.Itoa(PORT)
 
 	r.Run(addr) // listen and serve on 0.0.0.0:3001 (for windows "localhost:3001")
-}
-
-func printResults(greeting string, workflowID, runID string) {
-	fmt.Printf("\nWorkflowID: %s RunID: %s\n", workflowID, runID)
-	fmt.Printf("\n%s\n\n", greeting)
 }
 
 func TestWorkflow(c *gin.Context) {
@@ -98,5 +86,4 @@ func TestWorkflow(c *gin.Context) {
 			"runId":      we.GetRunID(),
 		})
 	}
-
 }
