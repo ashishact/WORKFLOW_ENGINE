@@ -12,7 +12,7 @@
                         "arguments": [
                             "arg1"
                         ],
-                        "result": "result1"
+                        "result": "a"
                     }
                 },
                 {
@@ -21,7 +21,7 @@
                         "arguments": [
                             "http://worldclockapi.com/api/json/est/now"
                         ],
-                        "result": "result2"
+                        "result": "b"
                     }
                 },
                 {
@@ -29,9 +29,10 @@
                         "name": "NopActivity",
                         "arguments": [
                             "arg2",
-                            "result2"
+                            "b"
                         ],
-                        "result": "result3"
+                        "result": "c",
+                        "return": "b.dayOfTheWeek"
                     }
                 }
             ]

@@ -1,8 +1,12 @@
 package app
 
 import (
+	"log"
 	"time"
 
+	"encoding/json"
+
+	"github.com/robertkrimen/otto"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -39,17 +43,18 @@ type (
 		Name      string
 		Arguments []string
 		Result    string
+		Return    string
 	}
 
 	executable interface {
-		execute(ctx workflow.Context, bindings map[string]string) error
+		execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error
 	}
 )
 
 // SimpleDSLWorkflow workflow definition
-func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow) ([]byte, error) {
+func SimpleDSLWorkflow(ctx workflow.Context, appWorkflow Workflow) (string, error) {
 	bindings := make(map[string]string)
-	for k, v := range dslWorkflow.Variables {
+	for k, v := range appWorkflow.Variables {
 		bindings[k] = v
 	}
 
@@ -59,31 +64,35 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow) ([]byte, erro
 	ctx = workflow.WithActivityOptions(ctx, ao)
 	logger := workflow.GetLogger(ctx)
 
-	err := dslWorkflow.Root.execute(ctx, bindings)
-	if err != nil {
-		logger.Error("DSL Workflow failed.", "Error", err)
-		return nil, err
-	}
+	// @todo: If JS required
+	jsvm := otto.New()
 
-	logger.Info("DSL Workflow completed.")
-	return nil, err
+	err := appWorkflow.Root.execute(ctx, jsvm, bindings)
+	if err != nil {
+		logger.Error("Workflow failed.", "Error", err)
+		return "", err
+	}
+	logger.Info("Workflow completed.")
+
+	result := bindings["return"]
+	return result, err
 }
 
-func (b *Statement) execute(ctx workflow.Context, bindings map[string]string) error {
+func (b *Statement) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
 	if b.Parallel != nil {
-		err := b.Parallel.execute(ctx, bindings)
+		err := b.Parallel.execute(ctx, jsvm, bindings)
 		if err != nil {
 			return err
 		}
 	}
 	if b.Sequence != nil {
-		err := b.Sequence.execute(ctx, bindings)
+		err := b.Sequence.execute(ctx, jsvm, bindings)
 		if err != nil {
 			return err
 		}
 	}
 	if b.Activity != nil {
-		err := b.Activity.execute(ctx, bindings)
+		err := b.Activity.execute(ctx, jsvm, bindings)
 		if err != nil {
 			return err
 		}
@@ -91,22 +100,47 @@ func (b *Statement) execute(ctx workflow.Context, bindings map[string]string) er
 	return nil
 }
 
-func (a ActivityInvocation) execute(ctx workflow.Context, bindings map[string]string) error {
+func (a ActivityInvocation) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
 	inputParam := makeInput(a.Arguments, bindings)
 	var result string
 	err := workflow.ExecuteActivity(ctx, a.Name, inputParam, a.Arguments).Get(ctx, &result)
 	if err != nil {
 		return err
 	}
+
+	code := ""
 	if a.Result != "" {
 		bindings[a.Result] = result
+		if IsJSON(result) {
+			code += a.Result + " = " + result + "; "
+		} else {
+			code += a.Result + " = '" + result + "'; "
+		}
+
 	}
+
+	if a.Return != "" {
+		code += "returnValue = " + a.Return + "; returnValue"
+	}
+
+	if code != "" {
+		log.Println("code: ", code)
+		v, err := jsvm.Run(code)
+		if err != nil {
+			log.Println("JS error:", err)
+		} else {
+			if a.Return != "" {
+				bindings["return"], _ = v.ToString()
+			}
+		}
+	}
+
 	return nil
 }
 
-func (s Sequence) execute(ctx workflow.Context, bindings map[string]string) error {
+func (s Sequence) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
 	for _, a := range s.Elements {
-		err := a.execute(ctx, bindings)
+		err := a.execute(ctx, jsvm, bindings)
 		if err != nil {
 			return err
 		}
@@ -114,7 +148,7 @@ func (s Sequence) execute(ctx workflow.Context, bindings map[string]string) erro
 	return nil
 }
 
-func (p Parallel) execute(ctx workflow.Context, bindings map[string]string) error {
+func (p Parallel) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
 	//
 	// You can use the context passed in to activity as a way to cancel the activity like standard GO way.
 	// Cancelling a parent context will cancel all the derived contexts as well.
@@ -126,7 +160,7 @@ func (p Parallel) execute(ctx workflow.Context, bindings map[string]string) erro
 	selector := workflow.NewSelector(ctx)
 	var activityErr error
 	for _, s := range p.Branches {
-		f := executeAsync(s, childCtx, bindings)
+		f := executeAsync(s, childCtx, jsvm, bindings)
 		selector.AddFuture(f, func(f workflow.Future) {
 			err := f.Get(ctx, nil)
 			if err != nil {
@@ -147,10 +181,10 @@ func (p Parallel) execute(ctx workflow.Context, bindings map[string]string) erro
 	return nil
 }
 
-func executeAsync(exe executable, ctx workflow.Context, bindings map[string]string) workflow.Future {
+func executeAsync(exe executable, ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) workflow.Future {
 	future, settable := workflow.NewFuture(ctx)
 	workflow.Go(ctx, func(ctx workflow.Context) {
-		err := exe.execute(ctx, bindings)
+		err := exe.execute(ctx, jsvm, bindings)
 		settable.Set(nil, err)
 	})
 	return future
@@ -179,3 +213,8 @@ func MegaWorkflow(ctx workflow.Context, path string) (string, error) {
 	return result, err
 }
 */
+
+func IsJSON(str string) bool {
+	var js json.RawMessage
+	return json.Unmarshal([]byte(str), &js) == nil
+}
