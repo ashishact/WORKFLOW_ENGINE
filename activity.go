@@ -50,12 +50,12 @@ func (a *ActivityType) CallHttp(ctx context.Context, input []string, arguments [
 	return result, nil
 }
 
-func (a *ActivityType) Sleep(ctx context.Context, input []string) error {
-	if len(input) == 0 {
+func (a *ActivityType) Sleep(ctx context.Context, input []string, arguments []string) error {
+	if len(arguments) == 0 {
 		return nil
 	}
 
-	duration, err := strconv.Atoi(input[0])
+	duration, err := strconv.Atoi(arguments[0])
 	if err != nil {
 		return errors.New("Sleep: Not a valid duration. Must be a number (seconds)")
 	}

@@ -4,7 +4,7 @@ import (
 	"github.com/robertkrimen/otto"
 )
 
-func main() {
+func main1() {
 	vm := otto.New()
 	vm.Run(`
     	abc = 2 + 2;

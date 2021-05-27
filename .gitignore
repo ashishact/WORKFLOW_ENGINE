@@ -16,5 +16,7 @@ vendor/
 bin/
 
 
+temporal/
+
 # OS
 .DS_Store

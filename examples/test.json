@@ -8,11 +8,12 @@
             "elements": [
                 {
                     "activity": {
-                        "name": "NopActivity",
+                        "name": "CallHttp",
                         "arguments": [
-                            "arg1"
+                            "https://us-central1-workflowsample.cloudfunctions.net/datetime"
                         ],
-                        "result": "a"
+                        "result": "currentTime",
+                        "return": "currentTime.dayOfTheWeek"
                     }
                 },
                 {
@@ -31,8 +32,7 @@
                             "arg2",
                             "b"
                         ],
-                        "result": "c",
-                        "return": "b.dayOfTheWeek"
+                        "result": "c"
                     }
                 }
             ]

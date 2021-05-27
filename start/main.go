@@ -31,7 +31,7 @@ func main() {
 	PORT := 3001
 	r := gin.Default()
 
-	r.GET("/test", TestWorkflow)
+	r.GET("/api/v1/run", TestWorkflow)
 	addr := ":" + strconv.Itoa(PORT)
 
 	r.Run(addr) // listen and serve on 0.0.0.0:3001 (for windows "localhost:3001")
@@ -46,7 +46,8 @@ func TestWorkflow(c *gin.Context) {
 	wfStr := c.Request.URL.Query().Get("workflow")
 	if wfStr == "" {
 		c.JSON(200, gin.H{
-			"error": "Empty workflow",
+			"status": "fail",
+			"error":  "Empty workflow",
 		})
 		return
 	}
@@ -55,7 +56,8 @@ func TestWorkflow(c *gin.Context) {
 	err := json.Unmarshal([]byte(wfStr), &appWorkflow)
 	if err != nil {
 		c.JSON(200, gin.H{
-			"error": "Invalid JSON",
+			"status": "fail",
+			"error":  "Invalid JSON",
 		})
 		return
 	}
@@ -76,12 +78,14 @@ func TestWorkflow(c *gin.Context) {
 
 	if err != nil {
 		c.JSON(200, gin.H{
+			"status":     "fail",
 			"error":      err,
 			"workflowId": we.GetID(),
 			"runId":      we.GetRunID(),
 		})
 	} else {
 		c.JSON(200, gin.H{
+			"status":     "success",
 			"workflowId": we.GetID(),
 			"runId":      we.GetRunID(),
 		})

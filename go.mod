@@ -19,4 +19,5 @@ require (
 	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
 	golang.org/x/sys v0.0.0-20210521203332-0cec03c779c1 // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
+	rogchap.com/v8go v0.6.0
 )
