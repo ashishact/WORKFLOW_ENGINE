@@ -1,0 +1,20 @@
+{
+    "name": "Begin",
+    "variables": {},
+    "steps": [
+        {
+            "name": "step1",
+            "call": "noops",
+            "args": {
+                "seconds": 5
+            },
+            "result": "act"
+        },
+        {
+            "name": "step2",
+            "call": "nothing",
+            "return": "act"
+        }
+    ]
+
+}

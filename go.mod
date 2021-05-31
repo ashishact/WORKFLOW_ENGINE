@@ -3,8 +3,9 @@ module workflow_engine/app
 go 1.13
 
 require (
-	github.com/Jeffail/gabs/v2 v2.6.1 // indirect
+	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/dop251/goja v0.0.0-20210427212725-462d53687b0d // indirect
+	github.com/emirpasic/gods v1.12.0 // indirect
 	github.com/gin-gonic/gin v1.7.2
 	github.com/go-playground/validator/v10 v10.6.1 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect

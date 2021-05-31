@@ -11,6 +11,39 @@ import (
 )
 
 type (
+	Args_Http struct {
+		Url     string
+		Method  string
+		Headers map[string]string
+		Body    map[string]string
+		Query   map[string]string
+		Auth    string
+		Timeout int
+	}
+
+	Args_Sleep struct {
+		Seconds int
+	}
+
+	Step struct {
+		Name      string
+		Call      string
+		Args      map[string]interface{}
+		Variables map[string]interface{}
+		Result    string
+		Return    string
+		Assign    map[string]interface{}
+		Next      string
+		Children  []*Step
+	}
+
+	WF struct {
+		Name       string
+		Variables  map[string]interface{}
+		Steps      []*Step // JSON object
+		Activities []*Step // Will be ordered: depth first from root => end
+	}
+
 	// Workflow is the type used to express the workflow definition. Variables are a map of valuables. Variables can be
 	// used as input to Activity.
 	Workflow struct {
@@ -51,13 +84,42 @@ type (
 	}
 )
 
-// SimpleDSLWorkflow workflow definition
-func SimpleDSLWorkflow(ctx workflow.Context, appWorkflow Workflow) (string, error) {
-	bindings := make(map[string]string)
-	for k, v := range appWorkflow.Variables {
-		bindings[k] = v
+// Recurssivly insert steps => Depth Firts
+func (wf *WF) insertSteps(current *Step) {
+	if current.Variables == nil {
+		current.Variables = make(map[string]interface{})
+	}
+	if current.Assign == nil {
+		current.Assign = make(map[string]interface{})
+	}
+	if current.Assign == nil {
+		current.Children = []*Step{}
 	}
 
+	wf.Activities = append(wf.Activities, current)
+	for _, s := range current.Children {
+		wf.insertSteps(s)
+	}
+}
+func (wf *WF) createActivitiesFromSteps() {
+	if wf.Variables == nil {
+		wf.Variables = make(map[string]interface{})
+	}
+
+	for _, s := range wf.Steps {
+		wf.insertSteps(s)
+	}
+}
+
+func NEW_WF(name string, json_str string) (WF, error) {
+	var wf WF
+	err := json.Unmarshal([]byte(json_str), &wf)
+	wf.createActivitiesFromSteps()
+
+	return wf, err
+}
+
+func WorkflowEngineMain(ctx workflow.Context, wf WF) (string, error) {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 	}
@@ -67,60 +129,91 @@ func SimpleDSLWorkflow(ctx workflow.Context, appWorkflow Workflow) (string, erro
 	// @todo: If JS required
 	jsvm := otto.New()
 
-	err := appWorkflow.Root.execute(ctx, jsvm, bindings)
-	if err != nil {
-		logger.Error("Workflow failed.", "Error", err)
-		return "", err
+	// This for loop takes care of nested steps as well
+	// because we are converting all nseted steps to an array with depth first order
+	i := 0
+	for i < len(wf.Activities) {
+		step := wf.Activities[i]
+		err := step.execute(ctx, jsvm)
+		if err != nil {
+			logger.Error("Workflow failed.", "Error", err)
+			return "", err
+		}
+
+		// Replace all wf variables with the result of this step
+		for k, v := range step.Variables {
+			wf.Variables[k] = v
+		}
+
+		// Check conditional jump
+
+		if step.Return != "" {
+			log.Println("FOUND RETURN. Ending workflow")
+			break
+		}
+
+		i++
 	}
 	logger.Info("Workflow completed.")
 
-	result := bindings["return"]
-	return result, err
+	for k, v := range wf.Variables {
+		log.Println(k, v)
+	}
+
+	rv := wf.Variables["return"]
+	returnValue, ok := rv.(string)
+	if !ok {
+		returnValue = ""
+	}
+
+	return returnValue, nil
 }
 
-func (b *Statement) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
-	if b.Parallel != nil {
-		err := b.Parallel.execute(ctx, jsvm, bindings)
-		if err != nil {
-			return err
-		}
-	}
-	if b.Sequence != nil {
-		err := b.Sequence.execute(ctx, jsvm, bindings)
-		if err != nil {
-			return err
-		}
-	}
-	if b.Activity != nil {
-		err := b.Activity.execute(ctx, jsvm, bindings)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (a ActivityInvocation) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
-	inputParam := makeInput(a.Arguments, bindings)
+func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
 	var result string
-	err := workflow.ExecuteActivity(ctx, a.Name, inputParam, a.Arguments).Get(ctx, &result)
-	if err != nil {
-		return err
+	ActivityName := ""
+	switch s.Call {
+	case "sleep":
+		ActivityName = "Sleep"
+		break
+	case "http.get":
+		ActivityName = "CallHttp"
+		break
+	case "noops":
+		ActivityName = "NopActivity"
+		break
+	default:
+		ActivityName = ""
+	}
+
+	// IF No activity just do the JS task
+	if ActivityName == "" {
+		log.Println("Step: " + s.Name + " No activity")
+	} else {
+		err := workflow.ExecuteActivity(ctx, ActivityName, s).Get(ctx, &result)
+		if err != nil {
+			return err
+		}
 	}
 
 	code := ""
-	if a.Result != "" {
-		bindings[a.Result] = result
-		if IsJSON(result) {
-			code += a.Result + " = " + result + "; "
-		} else {
-			code += a.Result + " = '" + result + "'; "
-		}
 
+	// Assign
+	// for k, v :=  range s.Assign{
+	// 	str, ok = v.(string)
+	// 	code+= k + " = " +
+	// }
+	if s.Result != "" {
+		s.Variables[s.Result] = result
+		if IsJSON(result) {
+			code += s.Result + " = " + result + "; "
+		} else {
+			code += s.Result + " = '" + result + "'; "
+		}
 	}
 
-	if a.Return != "" {
-		code += "returnValue = " + a.Return + "; returnValue"
+	if s.Return != "" {
+		code += "returnValue = " + s.Return + "; returnValue"
 	}
 
 	if code != "" {
@@ -129,52 +222,9 @@ func (a ActivityInvocation) execute(ctx workflow.Context, jsvm *otto.Otto, bindi
 		if err != nil {
 			log.Println("JS error:", err)
 		} else {
-			if a.Return != "" {
-				bindings["return"], _ = v.ToString()
+			if s.Return != "" {
+				s.Variables["return"], _ = v.ToString()
 			}
-		}
-	}
-
-	return nil
-}
-
-func (s Sequence) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
-	for _, a := range s.Elements {
-		err := a.execute(ctx, jsvm, bindings)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p Parallel) execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error {
-	//
-	// You can use the context passed in to activity as a way to cancel the activity like standard GO way.
-	// Cancelling a parent context will cancel all the derived contexts as well.
-	//
-
-	// In the parallel block, we want to execute all of them in parallel and wait for all of them.
-	// if one activity fails then we want to cancel all the rest of them as well.
-	childCtx, cancelHandler := workflow.WithCancel(ctx)
-	selector := workflow.NewSelector(ctx)
-	var activityErr error
-	for _, s := range p.Branches {
-		f := executeAsync(s, childCtx, jsvm, bindings)
-		selector.AddFuture(f, func(f workflow.Future) {
-			err := f.Get(ctx, nil)
-			if err != nil {
-				// cancel all pending activities
-				cancelHandler()
-				activityErr = err
-			}
-		})
-	}
-
-	for i := 0; i < len(p.Branches); i++ {
-		selector.Select(ctx) // this will wait for one branch
-		if activityErr != nil {
-			return activityErr
 		}
 	}
 
@@ -197,22 +247,6 @@ func makeInput(argNames []string, argsMap map[string]string) []string {
 	}
 	return args
 }
-
-/*
-func MegaWorkflow(ctx workflow.Context, path string) (string, error) {
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: time.Second * 20,
-	}
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	var err error
-	workflow.ExecuteActivity(ctx, Sleep, 5).Get(ctx, &err)
-
-	var result string
-	err = workflow.ExecuteActivity(ctx, CallHttp, path).Get(ctx, &result)
-	return result, err
-}
-*/
 
 func IsJSON(str string) bool {
 	var js json.RawMessage

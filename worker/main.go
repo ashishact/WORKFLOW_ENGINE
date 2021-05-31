@@ -19,7 +19,7 @@ func main() {
 	// This worker hosts both Worker and Activity functions
 	w := worker.New(c, app.WorkflowEngineTaskQueue, worker.Options{})
 
-	w.RegisterWorkflow(app.SimpleDSLWorkflow)
+	w.RegisterWorkflow(app.WorkflowEngineMain)
 	w.RegisterActivity(&app.ActivityType{})
 
 	err = w.Run(nil) // Don't stop on error

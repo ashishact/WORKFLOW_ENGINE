@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 
-	"encoding/json"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -28,13 +27,13 @@ func main() {
 	defer c.Close()
 
 	// WEB SERVER
-	PORT := 3001
+	PORT := 3007
 	r := gin.Default()
 
 	r.GET("/api/v1/run", TestWorkflow)
 	addr := ":" + strconv.Itoa(PORT)
 
-	r.Run(addr) // listen and serve on 0.0.0.0:3001 (for windows "localhost:3001")
+	r.Run(addr) // listen and serve on 0.0.0.0:3007 (for windows "localhost:3007")
 }
 
 func TestWorkflow(c *gin.Context) {
@@ -51,30 +50,21 @@ func TestWorkflow(c *gin.Context) {
 		})
 		return
 	}
-
-	var appWorkflow app.Workflow
-	err := json.Unmarshal([]byte(wfStr), &appWorkflow)
+	wf, err := app.NEW_WF("hello", wfStr)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"status": "fail",
-			"error":  "Invalid JSON",
+			"error":  err.Error(),
 		})
 		return
 	}
 
-	we, err := temporalClient.ExecuteWorkflow(context.Background(), options, app.SimpleDSLWorkflow, appWorkflow)
+	we, err := temporalClient.ExecuteWorkflow(context.Background(), options, app.WorkflowEngineMain, wf)
 	if err != nil {
 		log.Println("Unable to execute workflow", err)
 	} else {
 		log.Println("Started workflow", "WorkflowID", we.GetID(), "RunID", we.GetRunID())
 	}
-
-	// // path := "https://ptsv2.com/t/epf3a-1621684148/post"
-	// path := "http://worldclockapi.com/api/json/est/now"
-	// we, err := temporalClient.ExecuteWorkflow(context.Background(), options, app.MegaWorkflow, path)
-	// if err != nil {
-	// 	log.Println("unable to complete Workflow", err)
-	// }
 
 	if err != nil {
 		c.JSON(200, gin.H{
