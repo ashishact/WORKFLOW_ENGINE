@@ -2,6 +2,9 @@ package app
 
 import (
 	"log"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"encoding/json"
@@ -10,7 +13,25 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+const (
+	TYPE_NAME_INTEGER = iota
+	TYPE_NAME_FLOAT
+	TYPE_NAME_BOOLEAN
+	TYPE_NAME_JSON
+	TYPE_NAME_STRING
+)
+
 type (
+	Var_Type struct {
+		integer int64
+		float   float64
+		boolean bool
+		json    string
+
+		str      string
+		typeName int
+	}
+
 	Args_Http struct {
 		Url     string
 		Method  string
@@ -33,6 +54,7 @@ type (
 		Result    string
 		Return    string
 		Assign    map[string]interface{}
+		Error     string
 		Next      string
 		Children  []*Step
 	}
@@ -83,6 +105,8 @@ type (
 		execute(ctx workflow.Context, jsvm *otto.Otto, bindings map[string]string) error
 	}
 )
+
+var R_IS_JS, _ = regexp.Compile("\\$\\{[^\\}]+\\}")
 
 // Recurssivly insert steps => Depth Firts
 func (wf *WF) insertSteps(current *Step) {
@@ -198,21 +222,33 @@ func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
 
 	code := ""
 
-	// Assign
-	// for k, v :=  range s.Assign{
-	// 	str, ok = v.(string)
-	// 	code+= k + " = " +
+	var result_var Var_Type
+	result_var.str = result
+	findType(&result_var)
+
+	// Assign?
+	// for ak, av := range s.Assign{
+
 	// }
+
+	// In Result just put's the result of the activity
 	if s.Result != "" {
-		s.Variables[s.Result] = result
 		if IsJSON(result) {
 			code += s.Result + " = " + result + "; "
 		} else {
 			code += s.Result + " = '" + result + "'; "
 		}
+		s.Variables[s.Result] = result
 	}
 
+	// AT END
 	if s.Return != "" {
+		// Remove if any JS expression
+		s.Return = strings.TrimSpace(s.Return)
+		if s.Return[0:2] == "${" && s.Return[len(s.Return)-1:] == "}" {
+			log.Println("Found JS expression")
+			s.Return = s.Return[2 : len(s.Return)-1]
+		}
 		code += "returnValue = " + s.Return + "; returnValue"
 	}
 
@@ -220,6 +256,7 @@ func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
 		log.Println("code: ", code)
 		v, err := jsvm.Run(code)
 		if err != nil {
+			s.Error = "JS Error: " + err.Error()
 			log.Println("JS error:", err)
 		} else {
 			if s.Return != "" {
@@ -248,7 +285,50 @@ func makeInput(argNames []string, argsMap map[string]string) []string {
 	return args
 }
 
+// Returns true if this is a JS expression
+func IsJS(s string) bool {
+	return R_IS_JS.MatchString(s)
+}
 func IsJSON(str string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(str), &js) == nil
+}
+
+func findType(var_type *Var_Type) {
+	i, e := strconv.ParseInt(var_type.str, 10, 64)
+	if e == nil {
+		var_type.integer = i
+		var_type.typeName = TYPE_NAME_INTEGER
+		return
+	}
+
+	f, e := strconv.ParseFloat(var_type.str, 10)
+	if e == nil {
+		var_type.float = f
+		var_type.typeName = TYPE_NAME_FLOAT
+		return
+	}
+
+	if var_type.str == "true" || var_type.str == "True" {
+		var_type.boolean = true
+		var_type.typeName = TYPE_NAME_BOOLEAN
+		var_type.str = "true"
+		return
+	}
+
+	if var_type.str == "false" || var_type.str == "False" {
+		var_type.boolean = false
+		var_type.typeName = TYPE_NAME_BOOLEAN
+		var_type.str = "false"
+		return
+	}
+
+	if IsJSON(var_type.str) {
+		var_type.json = var_type.str
+		var_type.typeName = TYPE_NAME_JSON
+		return
+	}
+
+	var_type.typeName = TYPE_NAME_STRING
+	return
 }

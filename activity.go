@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	// "workflow_engine/app"
-
 	"go.temporal.io/sdk/activity"
 )
 
@@ -74,11 +72,6 @@ func (a *ActivityType) Sleep(ctx context.Context, step *Step) error {
 	if !ok {
 		return errors.New("Not valid seconds must be a number")
 	}
-
-	// duration, err := strconv.Atoi(seconds)
-	// if err != nil {
-	// 	return errors.New("Sleep: Not a valid duration. Must be a number (seconds)")
-	// }
 
 	duration := int(seconds)
 

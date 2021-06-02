@@ -2,7 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
 
+	"github.com/joho/godotenv"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
@@ -10,8 +12,19 @@ import (
 )
 
 func main() {
+
+	envNotFount := godotenv.Load()
+	if envNotFount != nil {
+		log.Println(".env not found")
+	}
+
 	// Create the client object just once per process
-	c, err := client.NewClient(client.Options{})
+	option := client.Options{}
+	if os.Getenv("HOSTPORT") != "" {
+		option = client.Options{HostPort: os.Getenv("HOSTPORT")}
+	}
+
+	c, err := client.NewClient(option)
 	if err != nil {
 		log.Fatalln("unable to create Temporal client", err)
 	}
