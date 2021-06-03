@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -63,14 +64,15 @@ func (a *ActivityType) Sleep(ctx context.Context, step *Step) error {
 		fmt.Printf("Run %s with args %v \n", name, args)
 	}
 
-	i := step.Args["seconds"]
-	if i == nil {
+	bs, err := json.Marshal(step.Args["seconds"])
+	if err != nil {
 		return errors.New("Sleep: No arguments. provide seconds")
 	}
 
-	seconds, ok := i.(float64)
-	if !ok {
-		return errors.New("Not valid seconds must be a number")
+	str := UnEscapeStr(string(bs)) // Get 5 not "5"
+	seconds, err := strconv.Atoi(str)
+	if err != nil {
+		return errors.New("Sleep: Not a valid seconds, must be a number: " + str)
 	}
 
 	duration := int(seconds)
@@ -80,3 +82,17 @@ func (a *ActivityType) Sleep(ctx context.Context, step *Step) error {
 	log.Println("Sleeping Done")
 	return nil
 }
+
+/*
+h := json.RawMessage(`{"precomputed": true}`)
+
+c := struct {
+	Header *json.RawMessage `json:"header"`
+	Body   string           `json:"body"`
+}{Header: &h, Body: "Hello Gophers!"}
+
+b, err := json.MarshalIndent(&c, "", "\t")
+if err != nil {
+	fmt.Println("error:", err)
+}
+*/

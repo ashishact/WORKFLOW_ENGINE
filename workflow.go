@@ -1,6 +1,9 @@
 package app
 
 import (
+	"errors"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"regexp"
 	"strconv"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/robertkrimen/otto"
 	"go.temporal.io/sdk/workflow"
+	"rogchap.com/v8go"
 )
 
 const (
@@ -46,6 +50,10 @@ type (
 		Seconds int
 	}
 
+	MatchT struct {
+		On         json.RawMessage
+		Conditions json.RawMessage
+	}
 	Step struct {
 		Name      string
 		Call      string
@@ -55,6 +63,7 @@ type (
 		Return    string
 		Assign    map[string]interface{}
 		Error     string
+		Match     MatchT
 		Next      string
 		Children  []*Step
 	}
@@ -62,6 +71,7 @@ type (
 	WF struct {
 		Name       string
 		Variables  map[string]interface{}
+		Error      string
 		Steps      []*Step // JSON object
 		Activities []*Step // Will be ordered: depth first from root => end
 	}
@@ -107,17 +117,32 @@ type (
 )
 
 var R_IS_JS, _ = regexp.Compile("\\$\\{[^\\}]+\\}")
+var Z_SRC = ""
 
 // Recurssivly insert steps => Depth Firts
 func (wf *WF) insertSteps(current *Step) {
+	if current.Args == nil {
+		current.Args = make(map[string]interface{})
+	}
+
 	if current.Variables == nil {
 		current.Variables = make(map[string]interface{})
 	}
+
 	if current.Assign == nil {
 		current.Assign = make(map[string]interface{})
 	}
-	if current.Assign == nil {
+
+	if current.Children == nil {
 		current.Children = []*Step{}
+	}
+
+	current.Result = strings.ReplaceAll(current.Result, " ", "_") // var can't be with space
+
+	// @todo: there are other invalid veriables
+	m, _ := regexp.MatchString("^\\d+", current.Result)
+	if m {
+		current.Result = "Invalid_" + current.Result
 	}
 
 	wf.Activities = append(wf.Activities, current)
@@ -126,24 +151,32 @@ func (wf *WF) insertSteps(current *Step) {
 	}
 }
 func (wf *WF) createActivitiesFromSteps() {
-	if wf.Variables == nil {
-		wf.Variables = make(map[string]interface{})
-	}
-
 	for _, s := range wf.Steps {
 		wf.insertSteps(s)
 	}
 }
 
-func NEW_WF(name string, json_str string) (WF, error) {
+func (wf *WF) findStepIndex(name string) (int, error) {
+	for i, a := range wf.Activities {
+		if a.Name == name {
+			return i, nil
+		}
+	}
+	return -1, errors.New("No steps found with name: " + name)
+}
+func NEW_WF(json_bytes []byte) (WF, error) {
 	var wf WF
-	err := json.Unmarshal([]byte(json_str), &wf)
+	err := json.Unmarshal(json_bytes, &wf)
 	wf.createActivitiesFromSteps()
+
+	if wf.Variables == nil {
+		wf.Variables = make(map[string]interface{})
+	}
 
 	return wf, err
 }
 
-func WorkflowEngineMain(ctx workflow.Context, wf WF) (string, error) {
+func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 	}
@@ -151,14 +184,19 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (string, error) {
 	logger := workflow.GetLogger(ctx)
 
 	// @todo: If JS required
-	jsvm := otto.New()
+	v8, _ := v8go.NewContext()
+
+	v8.RunScript(Z_SRC, "z.js")
+
+	code := "let ERRORS = [];"
+	v8.RunScript(code, "init.js")
 
 	// This for loop takes care of nested steps as well
 	// because we are converting all nseted steps to an array with depth first order
 	i := 0
 	for i < len(wf.Activities) {
 		step := wf.Activities[i]
-		err := step.execute(ctx, jsvm)
+		err := step.execute(ctx, v8)
 		if err != nil {
 			logger.Error("Workflow failed.", "Error", err)
 			return "", err
@@ -166,14 +204,21 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (string, error) {
 
 		// Replace all wf variables with the result of this step
 		for k, v := range step.Variables {
-			wf.Variables[k] = v
+			wf.Variables[k] = v.(string)
 		}
-
-		// Check conditional jump
 
 		if step.Return != "" {
 			log.Println("FOUND RETURN. Ending workflow")
 			break
+		}
+
+		// NEXT
+		if step.Next != "" {
+			nextI, err := wf.findStepIndex(step.Next)
+			if err == nil && nextI < len(wf.Activities) {
+				i = nextI // JUMP
+				continue
+			}
 		}
 
 		i++
@@ -181,19 +226,20 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (string, error) {
 	logger.Info("Workflow completed.")
 
 	for k, v := range wf.Variables {
-		log.Println(k, v)
+		log.Println("Variables => ", k, v)
 	}
 
-	rv := wf.Variables["return"]
-	returnValue, ok := rv.(string)
-	if !ok {
-		returnValue = ""
+	jserr, _ := v8.RunScript("JSON.stringify(ERRORS)", "error.js")
+	if jserr != nil {
+		wf.Error = jserr.String()
 	}
+
+	returnValue := wf.Variables["return"]
 
 	return returnValue, nil
 }
 
-func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
+func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 	var result string
 	ActivityName := ""
 	switch s.Call {
@@ -210,6 +256,48 @@ func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
 		ActivityName = ""
 	}
 
+	code := ""
+
+	// Before Activity Parse Expression in inputs
+
+	// ASSIGN
+	for k, v := range s.Assign {
+		bs, ok := json.Marshal(v)
+		vs := string(bs)
+		if ok == nil && vs != "" {
+			vs = UnEscapeStr(vs)
+			code = k + " = " + vs // "num: 1" => num = 1
+			log.Println("ASSIGN: code ", code)
+			val, err := v8.RunScript(code, "assign.js")
+			if err != nil {
+				code = "ERRORS.push(JSON.stringify(" + err.Error() + "));"
+				v8.RunScript(code, "assign.error.js")
+			} else {
+				s.Assign[k] = val.String() // Assigned vars ready for activity
+			}
+		}
+	}
+
+	// ARGS
+	for k, v := range s.Args {
+		// IF STRING
+		// ELSE
+		vs, ok := v.(string)
+		if ok && (vs != "") && IsJS(vs) {
+			vs = UnEscapeStr(vs)
+			code = "`" + vs + "`" // "abc${2+3}def" => "abc5def"
+			log.Println("ARGS: code ", code)
+			val, err := v8.RunScript(code, "args.js")
+			if err != nil {
+				code = "ERRORS.push(JSON.stringify(" + err.Error() + "));"
+				v8.RunScript(code, "args.error.js")
+				log.Println("ARGS: code ERR: ", code, err)
+			} else {
+				s.Args[k] = val.String() // Inputs ready for activity
+			}
+		}
+	}
+
 	// IF No activity just do the JS task
 	if ActivityName == "" {
 		log.Println("Step: " + s.Name + " No activity")
@@ -220,48 +308,56 @@ func (s *Step) execute(ctx workflow.Context, jsvm *otto.Otto) error {
 		}
 	}
 
-	code := ""
-
-	var result_var Var_Type
-	result_var.str = result
-	findType(&result_var)
-
-	// Assign?
-	// for ak, av := range s.Assign{
-
-	// }
-
+	// RESULT
 	// In Result just put's the result of the activity
 	if s.Result != "" {
 		if IsJSON(result) {
-			code += s.Result + " = " + result + "; "
+			code = s.Result + " = " + result + "; "
 		} else {
-			code += s.Result + " = '" + result + "'; "
+			code = s.Result + " = '" + result + "'; "
 		}
+		_, err := v8.RunScript(code, "result.js")
+		if err != nil {
+			if err != nil {
+				code = "ERRORS.push(JSON.stringify(" + err.Error() + "));"
+				v8.RunScript(code, "result.error.js")
+			}
+		}
+
+		// Just store the value as result of this step
 		s.Variables[s.Result] = result
 	}
 
-	// AT END
-	if s.Return != "" {
-		// Remove if any JS expression
-		s.Return = strings.TrimSpace(s.Return)
-		if s.Return[0:2] == "${" && s.Return[len(s.Return)-1:] == "}" {
-			log.Println("Found JS expression")
-			s.Return = s.Return[2 : len(s.Return)-1]
+	// MATCH
+	if s.Match.On != nil && s.Match.Conditions != nil {
+		on, err1 := s.Match.On.MarshalJSON()
+		con, err2 := s.Match.Conditions.MarshalJSON()
+		if err1 != nil && err2 != nil {
+			log.Println(string(on))
+			// code = "z.matches(" + string(on) + ")(" + strings.Join(s.Match.Conditions, ", ") + ")"
+			code = "z.matches(" + string(on) + ")(" + string(con) + ")"
+			v, _ := v8.RunScript(code, "match.js")
+			log.Println("MATCH RESULT: ", v.String(), code)
 		}
-		code += "returnValue = " + s.Return + "; returnValue"
 	}
+	log.Println("LATER", s.Match.On, s.Match.Conditions)
 
-	if code != "" {
-		log.Println("code: ", code)
-		v, err := jsvm.Run(code)
+	// RETURN
+	if s.Return != "" {
+		// CHECK IF STRING RETURN
+		// @todo string is an exception
+		// ELSE
+		// code = "returnValue = JSON.stringify(" + s.Return + "); returnValue"
+		code = "returnValue = " + s.Return + "; returnValue"
+		log.Println("RETURN: code => ", code)
+		returnString, err := v8.RunScript(code, "return.js")
 		if err != nil {
-			s.Error = "JS Error: " + err.Error()
-			log.Println("JS error:", err)
+			code = "ERRORS.push(JSON.stringify(" + err.Error() + "));"
+			v8.RunScript(code, "return.error.js")
 		} else {
-			if s.Return != "" {
-				s.Variables["return"], _ = v.ToString()
-			}
+			returnValue := returnString.String()
+			// returnValue = UnEscapeStr(returnValue)
+			s.Variables["return"] = returnValue
 		}
 	}
 
@@ -331,4 +427,22 @@ func findType(var_type *Var_Type) {
 
 	var_type.typeName = TYPE_NAME_STRING
 	return
+}
+
+// Load the source code for the z.min.js
+func loadZSrc() error {
+	Z_SRC = "console.log('no z.min.js');"
+	data, err := ioutil.ReadFile("./z.min.js")
+	if err != nil {
+		fmt.Println(err)
+		log.Println("COULDN'T LOAD JS SOURCE")
+		return err
+	}
+	log.Println("z.min.js loaded")
+	Z_SRC = string(data)
+	return nil
+}
+
+func InitWorkflowGlobals() {
+	loadZSrc()
 }

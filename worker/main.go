@@ -18,6 +18,8 @@ func main() {
 		log.Println(".env not found")
 	}
 
+	app.InitWorkflowGlobals()
+
 	// Create the client object just once per process
 	option := client.Options{}
 	if os.Getenv("HOSTPORT") != "" {

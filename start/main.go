@@ -41,7 +41,7 @@ func main() {
 	PORT := 3007
 	r := gin.Default()
 
-	r.GET("/api/v1/run", TestWorkflow)
+	r.POST("/api/v1/run", TestWorkflow)
 	addr := ":" + strconv.Itoa(PORT)
 
 	r.Run(addr) // listen and serve on 0.0.0.0:3007 (for windows "localhost:3007")
@@ -53,17 +53,17 @@ func TestWorkflow(c *gin.Context) {
 		TaskQueue: app.WorkflowEngineTaskQueue,
 	}
 
-	wfStr := c.Request.URL.Query().Get("workflow")
-	if wfStr == "" {
-		c.JSON(200, gin.H{
+	body, err := c.GetRawData()
+	if err != nil || len(body) < 2 {
+		c.JSON(400, gin.H{
 			"status": "fail",
 			"error":  "Empty workflow",
 		})
 		return
 	}
-	wf, err := app.NEW_WF("hello", wfStr)
+	wf, err := app.NEW_WF(body)
 	if err != nil {
-		c.JSON(200, gin.H{
+		c.JSON(500, gin.H{
 			"status": "fail",
 			"error":  err.Error(),
 		})
@@ -78,7 +78,7 @@ func TestWorkflow(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(200, gin.H{
+		c.JSON(500, gin.H{
 			"status":     "fail",
 			"error":      err,
 			"workflowId": we.GetID(),
