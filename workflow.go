@@ -61,18 +61,19 @@ type (
 
 	// Each step/activity is a task that's individually executed by the engine in series
 	Step struct {
-		Name      string
-		Call      string
-		Args      map[string]interface{}
-		Variables map[string]interface{}
-		Result    string
-		Return    string
-		Assign    map[string]interface{}
-		Error     string
-		Switch    json.RawMessage
-		Match     json.RawMessage
-		Next      string
-		Children  []*Step
+		Name       string
+		Call       string
+		Args       map[string]interface{}
+		Variables  map[string]interface{}
+		Result     string
+		Return     string
+		Assign     map[string]interface{}
+		Assignkeys []string
+		Error      string
+		Switch     json.RawMessage
+		Match      json.RawMessage
+		Next       string
+		Children   []*Step
 	}
 
 	// Root workflow type => This is where the JSON get's converted to
@@ -294,8 +295,13 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 
 	jserr, _ := v8.RunScript("JSON.stringify(ERRORS)", "error.js")
 	if jserr != nil {
-		wf.Error = jserr.String()
-		return returnValue, errors.New(wf.Error)
+		errs := jserr.String()
+		if (errs == "[]") || (errs == "") || (errs == "\"\"") || (errs == "null") {
+		} else {
+			log.Println("JS Error: ", errs)
+			wf.Error = jserr.String()
+			return returnValue, errors.New(wf.Error)
+		}
 	}
 
 	return returnValue, nil
@@ -326,7 +332,8 @@ func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 	// Before Activity Parse Expression in inputs
 
 	// ASSIGN
-	for k, v := range s.Assign {
+	for _, k := range s.Assignkeys {
+		v := s.Assign[k] // Go doesn't have sorted keys
 		bs, ok := json.Marshal(v)
 		vs := string(bs)
 		if ok == nil && vs != "" {
@@ -338,7 +345,10 @@ func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 				code = "ERRORS.push(JSON.stringify(" + err.Error() + "));"
 				v8.RunScript(code, "assign.error.js")
 			} else {
-				s.Assign[k] = val.String() // Assigned vars ready for activity
+				log.Println("Assigned "+k, " = ", val.String())
+				// s.Assign[k] = val.String() // Assigned vars ready for activity
+				// Don't change Assign code . When iterating it doesn't help.
+				// Also anyway s.Assign isn't used anywhere directly. variables are used through JS
 			}
 		}
 	}
