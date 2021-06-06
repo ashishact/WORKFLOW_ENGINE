@@ -35,3 +35,5 @@ see more @ https://github.com/temporalio/docker-compose/blob/main/README.md
 
 @note: z.min.js file is required to be at the working directory. It will be loaded at runtime for value based pattern matching. 
 
+
+Read the development notes here: https://workflow-engine-frontend.s3.ap-south-1.amazonaws.com/docs/workflow_engine_development_notes.pdf
