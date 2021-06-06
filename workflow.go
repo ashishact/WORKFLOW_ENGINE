@@ -58,6 +58,8 @@ type (
 		Condition string
 		Next      string
 	}
+
+	// Each step/activity is a task that's individually executed by the engine in series
 	Step struct {
 		Name      string
 		Call      string
@@ -73,6 +75,7 @@ type (
 		Children  []*Step
 	}
 
+	// Root workflow type => This is where the JSON get's converted to
 	WF struct {
 		Name       string
 		Variables  map[string]interface{}
@@ -156,12 +159,15 @@ func (wf *WF) insertSteps(current *Step) {
 		wf.insertSteps(s)
 	}
 }
+
+// Activities is an ordered tree structure expanded into an Array
 func (wf *WF) createActivitiesFromSteps() {
 	for _, s := range wf.Steps {
 		wf.insertSteps(s)
 	}
 }
 
+// Get index of a step by name
 func (wf *WF) findStepIndex(name string) (int, error) {
 	for i, a := range wf.Activities {
 		if a.Name == name {
@@ -171,6 +177,8 @@ func (wf *WF) findStepIndex(name string) (int, error) {
 	}
 	return -1, errors.New("No steps found with name: " + name)
 }
+
+// Constructor function to create a new workflow
 func NEW_WF(json_bytes []byte) (WF, error) {
 	var wf WF
 	err := json.Unmarshal(json_bytes, &wf)
@@ -183,6 +191,7 @@ func NEW_WF(json_bytes []byte) (WF, error) {
 	return wf, err
 }
 
+// Main workflow func executed by temporal
 func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -284,8 +293,10 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 	return returnValue, nil
 }
 
+// Each step is executed with ARGS/ASSIGN/RESULT/MATCH/RETURN
 func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 	var result string
+
 	ActivityName := ""
 	switch s.Call {
 	case "sleep":
@@ -301,6 +312,7 @@ func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 		ActivityName = ""
 	}
 
+	// JS code to run in v8
 	code := ""
 
 	// Before Activity Parse Expression in inputs
@@ -374,7 +386,7 @@ func (s *Step) execute(ctx workflow.Context, v8 *v8go.Context) error {
 		s.Variables[s.Result] = result
 	}
 
-	// MATCH
+	// MATCH (use z pattern matching library)
 	var match MatchT
 	json.Unmarshal(s.Match, &match)
 	if len(match.Conditions) > 0 {
@@ -433,6 +445,7 @@ func executeAsync(exe executable, ctx workflow.Context, jsvm *otto.Otto, binding
 	return future
 }
 
+// Run JS code in v8 and return result
 func runJS(code string, v8 *v8go.Context, ref string) (string, error) {
 	val, err := v8.RunScript(code, ref)
 	log.Println("RUNJS:"+strings.ToUpper(ref)+" code => "+code, "err => ", err)

@@ -41,13 +41,13 @@ func main() {
 	PORT := 3007
 	r := gin.Default()
 
-	r.POST("/api/v1/run", TestWorkflow)
+	r.POST("/api/v1/run", RunWorkflow)
 	addr := ":" + strconv.Itoa(PORT)
 
 	r.Run(addr) // listen and serve on 0.0.0.0:3007 (for windows "localhost:3007")
 }
 
-func TestWorkflow(c *gin.Context) {
+func RunWorkflow(c *gin.Context) {
 	options := client.StartWorkflowOptions{
 		ID:        "workflow-" + uuid.New(),
 		TaskQueue: app.WorkflowEngineTaskQueue,

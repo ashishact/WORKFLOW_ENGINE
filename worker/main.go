@@ -18,7 +18,7 @@ func main() {
 		log.Println(".env not found")
 	}
 
-	app.InitWorkflowGlobals()
+	app.InitWorkflowGlobals() // This will load the js file into memory
 
 	// Create the client object just once per process
 	option := client.Options{}
