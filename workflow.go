@@ -214,8 +214,15 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 
 	// This for loop takes care of nested steps as well
 	// because we are converting all nseted steps to an array with depth first order
+	noOfActivityDone := 0
 	i := 0
 	for i < len(wf.Activities) {
+		noOfActivityDone = noOfActivityDone + 1
+		// We don't want INF loop - when some logic has errors
+		if noOfActivityDone > len(wf.Activities)*10 || noOfActivityDone > 100 {
+			break
+		}
+
 		step := wf.Activities[i]
 		err := step.execute(ctx, v8)
 		if err != nil {
@@ -283,12 +290,13 @@ func WorkflowEngineMain(ctx workflow.Context, wf WF) (interface{}, error) {
 		log.Println("Variables => ", k, v)
 	}
 
+	returnValue := wf.Variables["return"]
+
 	jserr, _ := v8.RunScript("JSON.stringify(ERRORS)", "error.js")
 	if jserr != nil {
 		wf.Error = jserr.String()
+		return returnValue, errors.New(wf.Error)
 	}
-
-	returnValue := wf.Variables["return"]
 
 	return returnValue, nil
 }
